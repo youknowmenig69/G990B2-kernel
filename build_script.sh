@@ -9,7 +9,8 @@ ARGS="$*"
 SRC_DIR="$(pwd)"
 TC_DIR="$HOME/toolchains/neutron-clang"
 JOBS="$(nproc --all)"
-MAKE_PARAMS="-j$JOBS -C $SRC_DIR O=$SRC_DIR/out ARCH=arm64 CC=clang CLANG_TRIPLE=$TC_DIR/bin/aarch64-linux-gnu- LLVM=1 CROSS_COMPILE=$TC_DIR/bin/llvm-"
+MAKE_PARAMS="-j$JOBS -C $SRC_DIR O=$SRC_DIR/out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- \
+AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip LLVM_IAS=1 LLVM=1"
 export PATH="$TC_DIR/bin:$PATH"
 
 DEVICE_NAME="r9q2"
