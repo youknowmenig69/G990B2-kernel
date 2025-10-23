@@ -19,10 +19,6 @@
 
 #include "bpf_jit.h"
 
-#ifdef CONFIG_FASTUH_RKP
-#include <linux/rkp.h>
-#endif
-
 #define TMP_REG_1 (MAX_BPF_JIT_REG + 0)
 #define TMP_REG_2 (MAX_BPF_JIT_REG + 1)
 #define TCALL_CNT (MAX_BPF_JIT_REG + 2)
@@ -989,9 +985,7 @@ skip_init_ctx:
 	prog->bpf_func = (void *)ctx.image;
 	prog->jited = 1;
 	prog->jited_len = image_size;
-#ifdef CONFIG_FASTUH_RKP
-	fastuh_call(FASTUH_APP_RKP, 0x22, (u64)header, (u64)(header->pages * 0x1000), 0, 0);
-#endif
+
 	if (!prog->is_func || extra_pass) {
 		int i;
 
@@ -1028,14 +1022,3 @@ void bpf_jit_free_exec(void *addr)
 {
 	return vfree(addr);
 }
-
-#ifdef CONFIG_CFI_CLANG
-bool arch_bpf_jit_check_func(const struct bpf_prog *prog)
-{
-	const uintptr_t func = (const uintptr_t)prog->bpf_func;
-
-	/* bpf_func must be correctly aligned and within the BPF JIT region */
-	return (func >= BPF_JIT_REGION_START && func < BPF_JIT_REGION_END &&
-		IS_ALIGNED(func, sizeof(u32)));
-}
-#endif

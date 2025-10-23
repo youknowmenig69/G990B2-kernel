@@ -2,9 +2,7 @@
 /*
  * Simple CPU accounting cgroup controller
  */
-#include <linux/cpufreq_times.h>
 #include "sched.h"
-#include "walt/walt.h"
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
 
@@ -72,16 +70,6 @@ void irqtime_account_irq(struct task_struct *curr)
 		irqtime_account_delta(irqtime, delta, CPUTIME_IRQ);
 	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd())
 		irqtime_account_delta(irqtime, delta, CPUTIME_SOFTIRQ);
-
-#ifdef CONFIG_SCHED_WALT
-	if (is_idle_task(curr)) {
-		if (hardirq_count() || in_serving_softirq())
-			walt_sched_account_irqend(cpu, curr, delta);
-		else
-			walt_sched_account_irqstart(cpu, curr);
-	}
-	cpu_rq(cpu)->wrq.last_irq_window = cpu_rq(cpu)->wrq.window_start;
-#endif
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
 
@@ -141,9 +129,6 @@ void account_user_time(struct task_struct *p, u64 cputime)
 
 	/* Account for user time used */
 	acct_account_cputime(p);
-
-	/* Account power usage for user time */
-	cpufreq_acct_update_power(p, cputime);
 }
 
 /*
@@ -188,9 +173,6 @@ void account_system_index_time(struct task_struct *p,
 
 	/* Account for system time used */
 	acct_account_cputime(p);
-
-	/* Account power usage for system time */
-	cpufreq_acct_update_power(p, cputime);
 }
 
 /*
@@ -482,7 +464,6 @@ void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 	*ut = cputime.utime;
 	*st = cputime.stime;
 }
-EXPORT_SYMBOL_GPL(thread_group_cputime_adjusted);
 
 #else /* !CONFIG_VIRT_CPU_ACCOUNTING_NATIVE: */
 
@@ -697,8 +678,6 @@ void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 	thread_group_cputime(p, &cputime);
 	cputime_adjust(&cputime, &p->signal->prev_cputime, ut, st);
 }
-EXPORT_SYMBOL_GPL(thread_group_cputime_adjusted);
-
 #endif /* !CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN

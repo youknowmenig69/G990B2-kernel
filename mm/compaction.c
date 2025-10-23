@@ -50,7 +50,7 @@ static inline void count_compact_events(enum vm_event_item item, long delta)
 #define pageblock_start_pfn(pfn)	block_start_pfn(pfn, pageblock_order)
 #define pageblock_end_pfn(pfn)		block_end_pfn(pfn, pageblock_order)
 
-unsigned long release_freepages(struct list_head *freelist)
+static unsigned long release_freepages(struct list_head *freelist)
 {
 	struct page *page, *next;
 	unsigned long high_pfn = 0;
@@ -66,7 +66,7 @@ unsigned long release_freepages(struct list_head *freelist)
 	return high_pfn;
 }
 
-void split_map_pages(struct list_head *list)
+static void split_map_pages(struct list_head *list)
 {
 	unsigned int i, order, nr_pages;
 	struct page *page, *next;
@@ -2402,14 +2402,16 @@ enum compact_result try_to_compact_pages(gfp_t gfp_mask, unsigned int order,
 	return rc;
 }
 
-static void __compact_node(int nid, bool sync)
+
+/* Compact all zones within a node */
+static void compact_node(int nid)
 {
 	pg_data_t *pgdat = NODE_DATA(nid);
 	int zoneid;
 	struct zone *zone;
 	struct compact_control cc = {
 		.order = -1,
-		.mode = sync ? MIGRATE_SYNC : MIGRATE_ASYNC,
+		.mode = MIGRATE_SYNC,
 		.ignore_skip_hint = true,
 		.whole_zone = true,
 		.gfp_mask = GFP_KERNEL,
@@ -2431,26 +2433,8 @@ static void __compact_node(int nid, bool sync)
 	}
 }
 
-#ifdef CONFIG_HUGEPAGE_POOL
-void compact_node_async(void)
-{
-	/* hugepage pool and kzerod assumes there is only one node */
-	__compact_node(0, false);
-}
-#endif
-
-/* Compact all zones within a node */
-static void compact_node(int nid)
-{
-	__compact_node(nid, true);
-}
-
 /* Compact all nodes in the system */
-#ifdef CONFIG_HUGEPAGE_POOL
-void compact_nodes(void)
-#else
 static void compact_nodes(void)
-#endif
 {
 	int nid;
 

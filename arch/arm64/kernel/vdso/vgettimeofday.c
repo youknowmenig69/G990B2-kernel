@@ -5,6 +5,8 @@
  * Copyright (C) 2018 ARM Limited
  *
  */
+#include <linux/time.h>
+#include <linux/types.h>
 
 int __kernel_clock_gettime(clockid_t clock,
 			   struct __kernel_timespec *ts)
@@ -22,9 +24,4 @@ int __kernel_clock_getres(clockid_t clock_id,
 			  struct __kernel_timespec *res)
 {
 	return __cvdso_clock_getres(clock_id, res);
-}
-
-time_t __kernel_time(time_t *time)
-{
-	return __cvdso_time(time);
 }

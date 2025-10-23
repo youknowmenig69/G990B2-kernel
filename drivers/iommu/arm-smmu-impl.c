@@ -105,10 +105,11 @@ static struct arm_smmu_device *cavium_smmu_impl_init(struct arm_smmu_device *smm
 
 #define ARM_MMU500_ACTLR_CPRE		(1 << 1)
 
+#define ARM_MMU500_ACR_CACHE_LOCK	(1 << 26)
 #define ARM_MMU500_ACR_S2CRB_TLBEN	(1 << 10)
 #define ARM_MMU500_ACR_SMTNMB_TLBEN	(1 << 8)
 
-int arm_mmu500_reset(struct arm_smmu_device *smmu)
+static int arm_mmu500_reset(struct arm_smmu_device *smmu)
 {
 	u32 reg, major;
 	int i;
@@ -161,10 +162,6 @@ struct arm_smmu_device *arm_smmu_impl_init(struct arm_smmu_device *smmu)
 		break;
 	case CAVIUM_SMMUV2:
 		return cavium_smmu_impl_init(smmu);
-	case QCOM_SMMUV500:
-		return qsmmuv500_impl_init(smmu);
-	case QCOM_SMMUV2:
-		return qsmmuv2_impl_init(smmu);
 	default:
 		break;
 	}
@@ -172,9 +169,6 @@ struct arm_smmu_device *arm_smmu_impl_init(struct arm_smmu_device *smmu)
 	if (of_property_read_bool(smmu->dev->of_node,
 				  "calxeda,smmu-secure-config-access"))
 		smmu->impl = &calxeda_impl;
-
-	if (of_device_is_compatible(smmu->dev->of_node, "qcom,sdm845-smmu-500"))
-		return qcom_smmu_impl_init(smmu);
 
 	return smmu;
 }

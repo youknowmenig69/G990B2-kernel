@@ -29,7 +29,6 @@ struct reclaim_stat {
 	unsigned nr_activate[2];
 	unsigned nr_ref_keep;
 	unsigned nr_unmap_fail;
-	unsigned nr_lazyfree_fail;
 };
 
 #ifdef CONFIG_VM_EVENT_COUNTERS
@@ -204,13 +203,6 @@ static inline unsigned long zone_page_state(struct zone *zone,
 		x = 0;
 #endif
 	return x;
-}
-
-static inline unsigned long zone_available_simple(struct zone *zone)
-{
-	return zone_page_state(zone, NR_FREE_PAGES)
-		+ zone_page_state(zone, NR_ZONE_INACTIVE_FILE)
-		+ zone_page_state(zone, NR_ZONE_ACTIVE_FILE);
 }
 
 /*

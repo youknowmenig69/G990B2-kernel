@@ -248,7 +248,7 @@ struct charger_manager {
 	u64 charging_end_time;
 };
 
-#if IS_ENABLED(CONFIG_CHARGER_MANAGER)
+#ifdef CONFIG_CHARGER_MANAGER
 extern void cm_notify_event(struct power_supply *psy,
 				enum cm_event_types type, char *msg);
 #else

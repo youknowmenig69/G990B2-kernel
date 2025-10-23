@@ -120,12 +120,11 @@ static gfp_t dma_atomic_pool_gfp(void)
 	return GFP_KERNEL;
 }
 
-struct gen_pool *__init __dma_atomic_pool_init(void)
+static int __init dma_atomic_pool_init(void)
 {
 	unsigned int pool_size_order = get_order(atomic_pool_size);
 	unsigned long nr_pages = atomic_pool_size >> PAGE_SHIFT;
 	struct page *page;
-	struct gen_pool *pool;
 	void *addr;
 	int ret;
 
@@ -139,8 +138,8 @@ struct gen_pool *__init __dma_atomic_pool_init(void)
 
 	arch_dma_prep_coherent(page, atomic_pool_size);
 
-	pool = gen_pool_create(PAGE_SHIFT, -1);
-	if (!pool)
+	atomic_pool = gen_pool_create(PAGE_SHIFT, -1);
+	if (!atomic_pool)
 		goto free_page;
 
 	addr = dma_common_contiguous_remap(page, atomic_pool_size,
@@ -149,71 +148,52 @@ struct gen_pool *__init __dma_atomic_pool_init(void)
 	if (!addr)
 		goto destroy_genpool;
 
-	ret = gen_pool_add_virt(pool, (unsigned long)addr,
+	ret = gen_pool_add_virt(atomic_pool, (unsigned long)addr,
 				page_to_phys(page), atomic_pool_size, -1);
 	if (ret)
 		goto remove_mapping;
-	gen_pool_set_algo(pool, gen_pool_first_fit_order_align, NULL);
+	gen_pool_set_algo(atomic_pool, gen_pool_first_fit_order_align, NULL);
 
 	pr_info("DMA: preallocated %zu KiB pool for atomic allocations\n",
 		atomic_pool_size / 1024);
-	return pool;
+	return 0;
 
 remove_mapping:
 	dma_common_free_remap(addr, atomic_pool_size);
 destroy_genpool:
-	gen_pool_destroy(pool);
-	pool = NULL;
+	gen_pool_destroy(atomic_pool);
+	atomic_pool = NULL;
 free_page:
 	if (!dma_release_from_contiguous(NULL, page, nr_pages))
 		__free_pages(page, pool_size_order);
 out:
 	pr_err("DMA: failed to allocate %zu KiB pool for atomic coherent allocation\n",
 		atomic_pool_size / 1024);
-	return ERR_PTR(-ENOMEM);
-}
-
-static int __init dma_atomic_pool_init(void)
-{
-	struct gen_pool *pool = __dma_atomic_pool_init();
-
-	if (!IS_ERR(pool)) {
-		atomic_pool = pool;
-		return 0;
-	}
-
-	return PTR_ERR(pool);
+	return -ENOMEM;
 }
 postcore_initcall(dma_atomic_pool_init);
 
-static bool __dma_in_atomic_pool(struct gen_pool *pool, void *start,
-				 size_t size)
-{
-	if (unlikely(!pool))
-		return false;
-
-	return addr_in_gen_pool(pool, (unsigned long)start, size);
-}
-
 bool dma_in_atomic_pool(void *start, size_t size)
 {
-	return __dma_in_atomic_pool(atomic_pool, start, size);
+	if (unlikely(!atomic_pool))
+		return false;
+
+	return addr_in_gen_pool(atomic_pool, (unsigned long)start, size);
 }
 
-void *__dma_alloc_from_pool(struct gen_pool *pool, size_t size,
-			    struct page **ret_page, gfp_t flags)
+void *dma_alloc_from_pool(size_t size, struct page **ret_page, gfp_t flags)
 {
 	unsigned long val;
 	void *ptr = NULL;
 
-	if (!pool) {
+	if (!atomic_pool) {
 		WARN(1, "coherent pool not initialised!\n");
 		return NULL;
 	}
 
-	val = gen_pool_alloc(pool, size);
+	val = gen_pool_alloc(atomic_pool, size);
 	if (val) {
-		phys_addr_t phys = gen_pool_virt_to_phys(pool, val);
+		phys_addr_t phys = gen_pool_virt_to_phys(atomic_pool, val);
 
 		*ret_page = pfn_to_page(__phys_to_pfn(phys));
 		ptr = (void *)val;
@@ -223,22 +203,12 @@ void *__dma_alloc_from_pool(struct gen_pool *pool, size_t size,
 	return ptr;
 }
 
-void *dma_alloc_from_pool(size_t size, struct page **ret_page, gfp_t flags)
-{
-	return __dma_alloc_from_pool(atomic_pool, size, ret_page, flags);
-}
-
-bool __dma_free_from_pool(struct gen_pool *pool, void *start, size_t size)
-{
-	if (!__dma_in_atomic_pool(pool, start, size))
-		return false;
-	gen_pool_free(pool, (unsigned long)start, size);
-	return true;
-}
-
 bool dma_free_from_pool(void *start, size_t size)
 {
-	return __dma_free_from_pool(atomic_pool, start, size);
+	if (!dma_in_atomic_pool(start, size))
+		return false;
+	gen_pool_free(atomic_pool, (unsigned long)start, size);
+	return true;
 }
 
 void *arch_dma_alloc(struct device *dev, size_t size, dma_addr_t *dma_handle,

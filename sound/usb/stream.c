@@ -67,13 +67,9 @@ static void snd_usb_audio_stream_free(struct snd_usb_stream *stream)
 static void snd_usb_audio_pcm_free(struct snd_pcm *pcm)
 {
 	struct snd_usb_stream *stream = pcm->private_data;
-	struct snd_usb_audio *chip;
 	if (stream) {
-		mutex_lock(&stream->chip->dev_lock);
-		chip = stream->chip;
 		stream->pcm = NULL;
 		snd_usb_audio_stream_free(stream);
-		mutex_unlock(&chip->dev_lock);
 	}
 }
 
@@ -98,6 +94,7 @@ static void snd_usb_init_substream(struct snd_usb_stream *as,
 	subs->tx_length_quirk = as->chip->tx_length_quirk;
 	subs->speed = snd_usb_get_speed(subs->dev);
 	subs->pkt_offset_adj = 0;
+	subs->stream_offset_adj = 0;
 
 	snd_usb_set_pcm_ops(as->pcm, stream);
 
@@ -354,11 +351,6 @@ snd_pcm_chmap_elem *convert_chmap_v3(struct uac3_cluster_header_descriptor
 
 		cs_len = le16_to_cpu(cs_desc->wLength);
 		cs_type = cs_desc->bSegmentType;
-
-		if ((p - (void *)cluster) + cs_len > len) {
-			pr_err("%s: out of buffer\n", __func__);
-			break;
-		}
 
 		if (cs_type == UAC3_CHANNEL_INFORMATION) {
 			struct uac3_cluster_information_segment_descriptor *is = p;
@@ -1000,7 +992,7 @@ snd_usb_get_audioformat_uac3(struct snd_usb_audio *chip,
 	if (err < 0) {
 		kfree(cluster);
 		return ERR_PTR(err);
-	} else if (err != wLength || wLength < le16_to_cpu(cluster->wLength)) {
+	} else if (err != wLength) {
 		dev_err(&dev->dev,
 			"%u:%d : can't get Cluster Descriptor\n",
 			iface_no, altno);

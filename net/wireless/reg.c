@@ -1662,23 +1662,22 @@ static uint32_t reg_rule_to_chan_bw_flags(const struct ieee80211_regdomain *regd
 					  const struct ieee80211_channel *chan)
 {
 	const struct ieee80211_freq_range *freq_range = NULL;
-	u32 max_bandwidth_khz, center_freq_khz, bw_flags = 0;
+	u32 max_bandwidth_khz, bw_flags = 0;
 
 	freq_range = &reg_rule->freq_range;
 
 	max_bandwidth_khz = freq_range->max_bandwidth_khz;
-	center_freq_khz = ieee80211_channel_to_khz(chan);
 	/* Check if auto calculation requested */
 	if (reg_rule->flags & NL80211_RRF_AUTO_BW)
 		max_bandwidth_khz = reg_get_max_bandwidth(regd, reg_rule);
 
 	/* If we get a reg_rule we can assume that at least 5Mhz fit */
 	if (!cfg80211_does_bw_fit_range(freq_range,
-					center_freq_khz,
+					MHZ_TO_KHZ(chan->center_freq),
 					MHZ_TO_KHZ(10)))
 		bw_flags |= IEEE80211_CHAN_NO_10MHZ;
 	if (!cfg80211_does_bw_fit_range(freq_range,
-					center_freq_khz,
+					MHZ_TO_KHZ(chan->center_freq),
 					MHZ_TO_KHZ(20)))
 		bw_flags |= IEEE80211_CHAN_NO_20MHZ;
 
@@ -1715,7 +1714,7 @@ static void handle_channel(struct wiphy *wiphy,
 
 	flags = chan->orig_flags;
 
-	reg_rule = freq_reg_info(wiphy, ieee80211_channel_to_khz(chan));
+	reg_rule = freq_reg_info(wiphy, MHZ_TO_KHZ(chan->center_freq));
 	if (IS_ERR(reg_rule)) {
 		/*
 		 * We will disable all channels that do not match our
@@ -1734,13 +1733,13 @@ static void handle_channel(struct wiphy *wiphy,
 		if (lr->initiator == NL80211_REGDOM_SET_BY_DRIVER &&
 		    request_wiphy && request_wiphy == wiphy &&
 		    request_wiphy->regulatory_flags & REGULATORY_STRICT_REG) {
-			pr_debug("Disabling freq %d.%03d MHz for good\n",
-				 chan->center_freq, chan->freq_offset);
+			pr_debug("Disabling freq %d MHz for good\n",
+				 chan->center_freq);
 			chan->orig_flags |= IEEE80211_CHAN_DISABLED;
 			chan->flags = chan->orig_flags;
 		} else {
-			pr_debug("Disabling freq %d.%03d MHz\n",
-				 chan->center_freq, chan->freq_offset);
+			pr_debug("Disabling freq %d MHz\n",
+				 chan->center_freq);
 			chan->flags |= IEEE80211_CHAN_DISABLED;
 		}
 		return;
@@ -1941,7 +1940,7 @@ static void handle_reg_beacon(struct wiphy *wiphy, unsigned int chan_idx,
 	sband = wiphy->bands[reg_beacon->chan.band];
 	chan = &sband->channels[chan_idx];
 
-	if (likely(!ieee80211_channel_equal(chan, &reg_beacon->chan)))
+	if (likely(chan->center_freq != reg_beacon->chan.center_freq))
 		return;
 
 	if (chan->beacon_found)
@@ -2274,18 +2273,18 @@ static void handle_channel_custom(struct wiphy *wiphy,
 	u32 bw_flags = 0;
 	const struct ieee80211_reg_rule *reg_rule = NULL;
 	const struct ieee80211_power_rule *power_rule = NULL;
-	u32 bw, center_freq_khz;
+	u32 bw;
 
-	center_freq_khz = ieee80211_channel_to_khz(chan);
 	for (bw = MHZ_TO_KHZ(20); bw >= min_bw; bw = bw / 2) {
-		reg_rule = freq_reg_info_regd(center_freq_khz, regd, bw);
+		reg_rule = freq_reg_info_regd(MHZ_TO_KHZ(chan->center_freq),
+					      regd, bw);
 		if (!IS_ERR(reg_rule))
 			break;
 	}
 
 	if (IS_ERR_OR_NULL(reg_rule)) {
-		pr_debug("Disabling freq %d.%03d MHz as custom regd has no rule that fits it\n",
-			 chan->center_freq, chan->freq_offset);
+		pr_debug("Disabling freq %d MHz as custom regd has no rule that fits it\n",
+			 chan->center_freq);
 		if (wiphy->regulatory_flags & REGULATORY_WIPHY_SELF_MANAGED) {
 			chan->flags |= IEEE80211_CHAN_DISABLED;
 		} else {
@@ -2968,7 +2967,6 @@ int regulatory_hint_user(const char *alpha2,
 
 	return 0;
 }
-EXPORT_SYMBOL(regulatory_hint_user);
 
 int regulatory_hint_indoor(bool is_indoor, u32 portid)
 {
@@ -3346,8 +3344,8 @@ static bool pending_reg_beacon(struct ieee80211_channel *beacon_chan)
 	struct reg_beacon *pending_beacon;
 
 	list_for_each_entry(pending_beacon, &reg_pending_beacons, list)
-		if (ieee80211_channel_equal(beacon_chan,
-					    &pending_beacon->chan))
+		if (beacon_chan->center_freq ==
+		    pending_beacon->chan.center_freq)
 			return true;
 	return false;
 }
@@ -3376,10 +3374,9 @@ int regulatory_hint_found_beacon(struct wiphy *wiphy,
 	if (!reg_beacon)
 		return -ENOMEM;
 
-	pr_debug("Found new beacon on frequency: %d.%03d MHz (Ch %d) on %s\n",
-		 beacon_chan->center_freq, beacon_chan->freq_offset,
-		 ieee80211_freq_khz_to_channel(
-			 ieee80211_channel_to_khz(beacon_chan)),
+	pr_debug("Found new beacon on frequency: %d MHz (Ch %d) on %s\n",
+		 beacon_chan->center_freq,
+		 ieee80211_frequency_to_channel(beacon_chan->center_freq),
 		 wiphy_name(wiphy));
 
 	memcpy(&reg_beacon->chan, beacon_chan,
@@ -3799,6 +3796,7 @@ void wiphy_regulatory_register(struct wiphy *wiphy)
 
 	wiphy_update_regulatory(wiphy, lr->initiator);
 	wiphy_all_share_dfs_chan_state(wiphy);
+	reg_process_self_managed_hints();
 }
 
 void wiphy_regulatory_deregister(struct wiphy *wiphy)
@@ -3958,19 +3956,9 @@ void regulatory_propagate_dfs_state(struct wiphy *wiphy,
 	}
 }
 
-#ifdef CONFIG_BATTERY_SAMSUNG
-extern unsigned int lpcharge;
-#endif
 static int __init regulatory_init_db(void)
 {
 	int err;
-
-#ifdef CONFIG_BATTERY_SAMSUNG
-	if (lpcharge) {
-		pr_info("%s: skip regulatory_init_db due to lpm mode.\n", __func__);
-		return 0;
-	}
-#endif
 
 	/*
 	 * It's possible that - due to other bugs/issues - cfg80211
@@ -4020,14 +4008,6 @@ late_initcall(regulatory_init_db);
 
 int __init regulatory_init(void)
 {
-
-#ifdef CONFIG_BATTERY_SAMSUNG
-	if (lpcharge) {
-		pr_info("%s: skip regulatory_init_db due to lpm mode.\n", __func__);
-		return 0;
-	}
-#endif
-
 	reg_pdev = platform_device_register_simple("regulatory", 0, NULL, 0);
 	if (IS_ERR(reg_pdev))
 		return PTR_ERR(reg_pdev);

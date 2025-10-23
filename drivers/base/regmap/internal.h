@@ -84,11 +84,6 @@ struct regmap {
 
 	struct list_head debugfs_off_cache;
 	struct mutex cache_lock;
-
-#ifdef CONFIG_REGMAP_QTI_DEBUG
-	unsigned int dump_address;
-	unsigned int dump_count;
-#endif
 #endif
 
 	unsigned int max_register;
@@ -109,6 +104,10 @@ struct regmap {
 	int (*reg_write)(void *context, unsigned int reg, unsigned int val);
 	int (*reg_update_bits)(void *context, unsigned int reg,
 			       unsigned int mask, unsigned int val);
+	/* Bulk read/write */
+	int (*read)(void *context, const void *reg_buf, size_t reg_size,
+		    void *val_buf, size_t val_size);
+	int (*write)(void *context, const void *data, size_t count);
 
 	bool defer_caching;
 

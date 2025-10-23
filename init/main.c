@@ -93,39 +93,14 @@
 #include <linux/cache.h>
 #include <linux/rodata_test.h>
 #include <linux/jump_label.h>
-#include <linux/memblock.h>
 
 #include <asm/io.h>
 #include <asm/setup.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
 
-#ifdef CONFIG_FASTUH_RKP
-#include <linux/rkp.h>
-#endif
-
-#ifdef CONFIG_FASTUH_KDP
-#include <linux/kdp.h>
-#endif
-
-#if defined(CONFIG_SEC_KUNIT) && defined(CONFIG_UML)
-extern int test_executor_init(void);
-#endif
-
 #define CREATE_TRACE_POINTS
 #include <trace/events/initcall.h>
-
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-#include <soc/qcom/boot_stats.h>
-#endif
-
-#include <linux/sec_debug.h>
-#include <linux/sec_bootstat.h>
-
-#ifdef CONFIG_SECURITY_DEFEX
-#include <linux/defex.h>
-void __init __weak defex_load_rules(void) { }
-#endif
 
 static int kernel_init(void *);
 
@@ -219,15 +194,8 @@ static bool __init obsolete_checksetup(char *line)
 				pr_warn("Parameter %s is obsolete, ignored\n",
 					p->str);
 				return true;
-			} else {
-				int ret;
-
-				memblock_memsize_set_name(p->str);
-				ret = p->setup_func(line + n);
-				memblock_memsize_unset_name();
-				if (ret)
-					return true;
-			}
+			} else if (p->setup_func(line + n))
+				return true;
 		}
 		p++;
 	} while (p < __setup_end);
@@ -275,27 +243,6 @@ static int __init loglevel(char *str)
 }
 
 early_param("loglevel", loglevel);
-
-#if IS_ENABLED(CONFIG_RTC_AUTO_PWRON_PARAM)
-unsigned int sapa_param_time;
-EXPORT_SYMBOL(sapa_param_time);
-
-static int __init read_sapa_param(char *str)
-{
-	int temp = 0;
-
-	if (get_option(&str, &temp)) {
-		sapa_param_time = (unsigned int)temp;
-		pr_info("[SAPA] %s: param_time=%u\n",
-			__func__, sapa_param_time);
-		return 0;
-	}
-
-	return -EINVAL;
-}
-
-early_param("sapa", read_sapa_param);
-#endif
 
 /* Change NUL term back to "=", to make "param" the whole string. */
 static int __init repair_env_string(char *param, char *val,
@@ -442,9 +389,6 @@ static void __init setup_command_line(char *command_line)
 
 	strcpy(saved_command_line, boot_command_line);
 	strcpy(static_command_line, command_line);
-#if IS_ENABLED(CONFIG_SEC_DEBUG)
-	sec_debug_get_erased_command_line();
-#endif
 }
 
 /*
@@ -517,10 +461,8 @@ static int __init do_early_param(char *param, char *val,
 		    (strcmp(param, "console") == 0 &&
 		     strcmp(p->str, "earlycon") == 0)
 		) {
-			memblock_memsize_set_name(p->str);
 			if (p->setup_func(val) != 0)
 				pr_warn("Malformed early option '%s'\n", param);
-			memblock_memsize_unset_name();
 		}
 	}
 	/* We accept everything at this stage. */
@@ -580,16 +522,14 @@ static void __init report_meminit(void)
 {
 	const char *stack;
 
-	if (IS_ENABLED(CONFIG_INIT_STACK_ALL_PATTERN))
-		stack = "all(pattern)";
-	else if (IS_ENABLED(CONFIG_INIT_STACK_ALL_ZERO))
-		stack = "all(zero)";
+	if (IS_ENABLED(CONFIG_INIT_STACK_ALL))
+		stack = "all";
 	else if (IS_ENABLED(CONFIG_GCC_PLUGIN_STRUCTLEAK_BYREF_ALL))
-		stack = "byref_all(zero)";
+		stack = "byref_all";
 	else if (IS_ENABLED(CONFIG_GCC_PLUGIN_STRUCTLEAK_BYREF))
-		stack = "byref(zero)";
+		stack = "byref";
 	else if (IS_ENABLED(CONFIG_GCC_PLUGIN_STRUCTLEAK_USER))
-		stack = "__user(zero)";
+		stack = "__user";
 	else
 		stack = "off";
 
@@ -613,8 +553,6 @@ static void __init mm_init(void)
 	init_debug_pagealloc();
 	report_meminit();
 	mem_init();
-	/* page_owner must be initialized after buddy is ready */
-	page_ext_init_flatmem_late();
 	kmem_cache_init();
 	kmemleak_init();
 	pgtable_init();
@@ -665,15 +603,7 @@ asmlinkage __visible void __init start_kernel(void)
 	build_all_zonelists(NULL);
 	page_alloc_init();
 
-#if IS_ENABLED(CONFIG_SEC_DEBUG)
-	pr_notice("Kernel command line: %s\n",
-			!IS_ENABLED(CONFIG_SAMSUNG_PRODUCT_SHIP) ?
-			boot_command_line :
-			sec_debug_get_erased_command_line());
-#else
 	pr_notice("Kernel command line: %s\n", boot_command_line);
-#endif
-
 	/* parameters may set static keys */
 	jump_label_init();
 	parse_early_param();
@@ -695,18 +625,11 @@ asmlinkage __visible void __init start_kernel(void)
 	trap_init();
 	mm_init();
 	poking_init();
-#ifdef CONFIG_FASTUH_RKP
-	rkp_init();
-#endif
 	ftrace_init();
 
 	/* trace_printk can be enabled here */
 	early_trace_init();
 
-#ifdef CONFIG_FASTUH_KDP
-	// move to after, early_trace_init. cuz security_integrity_current failed
-	kdp_cred_enable = 1;
-#endif
 	/*
 	 * Set up the scheduler prior starting any interrupts (such as the
 	 * timer interrupt). Full topology setup happens at smp_init()
@@ -821,10 +744,6 @@ asmlinkage __visible void __init start_kernel(void)
 		efi_enter_virtual_mode();
 #endif
 	thread_stack_cache_init();
-#ifdef CONFIG_FASTUH_KDP
-	if (kdp_cred_enable)
-		kdp_init();
-#endif
 	cred_init();
 	fork_init();
 	proc_caches_init();
@@ -942,41 +861,6 @@ static bool __init_or_module initcall_blacklisted(initcall_t fn)
 #endif
 __setup("initcall_blacklist=", initcall_blacklist);
 
-#if IS_ENABLED(CONFIG_SEC_BOOTSTAT)
-static bool __init_or_module initcall_sec_debug = true;
-static DEFINE_SPINLOCK(device_init_time_list_lock);
-
-static int __init_or_module do_one_initcall_sec_debug(initcall_t fn)
-{
-	ktime_t calltime, delta, rettime;
-	unsigned long long duration;
-	int ret;
-	struct device_init_time_entry *entry;
-
-	calltime = ktime_get();
-	ret = fn();
-	rettime = ktime_get();
-	delta = ktime_sub(rettime, calltime);
-	duration = (unsigned long long) ktime_to_ns(delta) >> 10;
-	if (duration > DEVICE_INIT_TIME_100MS) {
-		printk(KERN_DEBUG "initcall %pF returned %d after %lld usecs\n",
-				fn, ret, duration);
-		entry = kmalloc(sizeof(*entry), GFP_KERNEL);
-		if (!entry)
-			return -ENOMEM;
-		entry->buf = kasprintf(GFP_KERNEL, "%pf", fn);
-		if (!entry->buf)
-			return -ENOMEM;
-		entry->duration = duration;
-		spin_lock(&device_init_time_list_lock);
-		list_add(&entry->next, &device_init_time_list);
-		spin_unlock(&device_init_time_list_lock);
-	}
-
-	return ret;
-}
-#endif
-
 static __init_or_module void
 trace_initcall_start_cb(void *data, initcall_t fn)
 {
@@ -1040,11 +924,6 @@ int __init_or_module do_one_initcall(initcall_t fn)
 		return -EPERM;
 
 	do_trace_initcall_start(fn);
-#if IS_ENABLED(CONFIG_SEC_BOOTSTAT)
-	if (initcall_sec_debug)
-		ret = do_one_initcall_sec_debug(fn);
-	else
-#endif
 	ret = fn();
 	do_trace_initcall_finish(fn, ret);
 
@@ -1114,9 +993,6 @@ static void __init do_initcall_level(int level)
 	trace_initcall_level(initcall_level_names[level]);
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
-#if IS_ENABLED(CONFIG_SEC_BOOTSTAT)
-	sec_bootstat_add_initcall(initcall_level_names[level]);
-#endif
 }
 
 static void __init do_initcalls(void)
@@ -1240,18 +1116,10 @@ static int __ref kernel_init(void *unused)
 
 	rcu_end_inkernel_boot();
 
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	place_marker("M - DRIVER Kernel Boot Done");
-#endif
-
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
-		if (!ret) {
-#ifdef CONFIG_FASTUH_RKP
-			rkp_deferred_init();
-#endif
+		if (!ret)
 			return 0;
-		}
 		pr_err("Failed to execute %s (error %d)\n",
 		       ramdisk_execute_command, ret);
 	}
@@ -1314,10 +1182,6 @@ static noinline void __init kernel_init_freeable(void)
 
 	do_basic_setup();
 
-#if defined(CONFIG_SEC_KUNIT) && defined(CONFIG_UML)
-	test_executor_init();
-#endif
-
 	/* Open the /dev/console on the rootfs, this should never fail */
 	if (ksys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)
 		pr_err("Warning: unable to open an initial console.\n");
@@ -1348,7 +1212,4 @@ static noinline void __init kernel_init_freeable(void)
 	 */
 
 	integrity_load_keys();
-#ifdef CONFIG_SECURITY_DEFEX
-	defex_load_rules();
-#endif
 }

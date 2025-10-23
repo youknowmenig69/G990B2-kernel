@@ -14,14 +14,10 @@
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
 #include <linux/irqdomain.h>
-#include <linux/wakeup_reason.h>
 
 #include <trace/events/irq.h>
 
 #include "internals.h"
-#if IS_ENABLED(CONFIG_SEC_DEBUG_SCHED_LOG)
-#include <linux/sec_debug.h>
-#endif
 
 static irqreturn_t bad_chained_irq(int irq, void *dev_id)
 {
@@ -514,22 +510,8 @@ static bool irq_may_run(struct irq_desc *desc)
 	 * If the interrupt is not in progress and is not an armed
 	 * wakeup interrupt, proceed.
 	 */
-	if (!irqd_has_set(&desc->irq_data, mask)) {
-#ifdef CONFIG_PM_SLEEP
-		if (unlikely(desc->no_suspend_depth &&
-			     irqd_is_wakeup_set(&desc->irq_data))) {
-			unsigned int irq = irq_desc_get_irq(desc);
-			const char *name = "(unnamed)";
-
-			if (desc->action && desc->action->name)
-				name = desc->action->name;
-
-			log_abnormal_wakeup_reason("misconfigured IRQ %u %s",
-						   irq, name);
-		}
-#endif
+	if (!irqd_has_set(&desc->irq_data, mask))
 		return true;
-	}
 
 	/*
 	 * If the interrupt is an armed wakeup source, mark it pending
@@ -958,25 +940,9 @@ void handle_percpu_devid_irq(struct irq_desc *desc)
 		chip->irq_ack(&desc->irq_data);
 
 	if (likely(action)) {
-#if defined(CONFIG_SEC_DEBUG_SCHED_LOG)
-#if defined(CONFIG_SEC_DEBUG_SCHED_LOG_IRQ_V2)
-		sec_debug_irq_sched_log(irq, desc, action, IRQ_ENTRY_V2);
-#else
-		sec_debug_irq_sched_log(irq, action->handler,
-				(char *)action->name, IRQ_ENTRY);
-#endif
-#endif
 		trace_irq_handler_entry(irq, action);
 		res = action->handler(irq, raw_cpu_ptr(action->percpu_dev_id));
 		trace_irq_handler_exit(irq, action, res);
-#if defined(CONFIG_SEC_DEBUG_SCHED_LOG)
-#if defined(CONFIG_SEC_DEBUG_SCHED_LOG_IRQ_V2)
-		sec_debug_irq_sched_log(irq, desc, action, IRQ_EXIT_V2);
-#else
-		sec_debug_irq_sched_log(irq, action->handler,
-				(char *)action->name, IRQ_EXIT);
-#endif
-#endif
 	} else {
 		unsigned int cpu = smp_processor_id();
 		bool enabled = cpumask_test_cpu(cpu, desc->percpu_enabled);
@@ -1335,50 +1301,6 @@ EXPORT_SYMBOL_GPL(handle_fasteoi_mask_irq);
 #endif /* CONFIG_IRQ_FASTEOI_HIERARCHY_HANDLERS */
 
 /**
- * irq_chip_set_parent_state - set the state of a parent interrupt.
- *
- * @data: Pointer to interrupt specific data
- * @which: State to be restored (one of IRQCHIP_STATE_*)
- * @val: Value corresponding to @which
- *
- * Conditional success, if the underlying irqchip does not implement it.
- */
-int irq_chip_set_parent_state(struct irq_data *data,
-			      enum irqchip_irq_state which,
-			      bool val)
-{
-	data = data->parent_data;
-
-	if (!data || !data->chip->irq_set_irqchip_state)
-		return 0;
-
-	return data->chip->irq_set_irqchip_state(data, which, val);
-}
-EXPORT_SYMBOL_GPL(irq_chip_set_parent_state);
-
-/**
- * irq_chip_get_parent_state - get the state of a parent interrupt.
- *
- * @data: Pointer to interrupt specific data
- * @which: one of IRQCHIP_STATE_* the caller wants to know
- * @state: a pointer to a boolean where the state is to be stored
- *
- * Conditional success, if the underlying irqchip does not implement it.
- */
-int irq_chip_get_parent_state(struct irq_data *data,
-			      enum irqchip_irq_state which,
-			      bool *state)
-{
-	data = data->parent_data;
-
-	if (!data || !data->chip->irq_get_irqchip_state)
-		return 0;
-
-	return data->chip->irq_get_irqchip_state(data, which, state);
-}
-EXPORT_SYMBOL_GPL(irq_chip_get_parent_state);
-
-/**
  * irq_chip_enable_parent - Enable the parent interrupt (defaults to unmask if
  * NULL)
  * @data:	Pointer to interrupt specific data
@@ -1515,7 +1437,6 @@ int irq_chip_retrigger_hierarchy(struct irq_data *data)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(irq_chip_retrigger_hierarchy);
 
 /**
  * irq_chip_set_vcpu_affinity_parent - Set vcpu affinity on the parent interrupt
@@ -1530,7 +1451,7 @@ int irq_chip_set_vcpu_affinity_parent(struct irq_data *data, void *vcpu_info)
 
 	return -ENOSYS;
 }
-EXPORT_SYMBOL_GPL(irq_chip_set_vcpu_affinity_parent);
+
 /**
  * irq_chip_set_wake_parent - Set/reset wake-up on the parent interrupt
  * @data:	Pointer to interrupt specific data

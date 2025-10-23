@@ -12,7 +12,6 @@
 #include <linux/export.h>
 #include <linux/gfp.h>
 #include <linux/of_device.h>
-#include <linux/of_reserved_mem.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 
@@ -44,18 +43,6 @@ static int dmam_match(struct device *dev, void *res, void *match_data)
 		return 1;
 	}
 	return 0;
-}
-
-static bool is_dma_coherent(struct device *dev, unsigned long attrs)
-{
-	if (attrs & DMA_ATTR_FORCE_COHERENT)
-		return true;
-	else if (attrs & DMA_ATTR_FORCE_NON_COHERENT)
-		return false;
-	else if (dev_is_dma_coherent(dev))
-		return true;
-	else
-		return false;
 }
 
 /**
@@ -128,7 +115,7 @@ int dma_common_get_sgtable(struct device *dev, struct sg_table *sgt,
 	struct page *page;
 	int ret;
 
-	if (!is_dma_coherent(dev, attrs)) {
+	if (!dev_is_dma_coherent(dev)) {
 		unsigned long pfn;
 
 		if (!IS_ENABLED(CONFIG_ARCH_HAS_DMA_COHERENT_TO_PFN))
@@ -148,7 +135,6 @@ int dma_common_get_sgtable(struct device *dev, struct sg_table *sgt,
 		sg_set_page(sgt->sgl, page, PAGE_ALIGN(size), 0);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(dma_common_get_sgtable);
 
 /*
  * The whole dma_get_sgtable() idea is fundamentally unsafe - it seems
@@ -166,9 +152,6 @@ int dma_get_sgtable_attrs(struct device *dev, struct sg_table *sgt,
 		unsigned long attrs)
 {
 	const struct dma_map_ops *ops = get_dma_ops(dev);
-
-	if (dev_is_dma_coherent_hint_cached(dev))
-		attrs |= DMA_ATTR_FORCE_COHERENT;
 
 	if (dma_is_direct(ops))
 		return dma_common_get_sgtable(dev, sgt, cpu_addr, dma_addr,
@@ -188,7 +171,7 @@ pgprot_t dma_pgprot(struct device *dev, pgprot_t prot, unsigned long attrs)
 {
 	if (force_dma_unencrypted(dev))
 		prot = pgprot_decrypted(prot);
-	if (is_dma_coherent(dev, attrs) ||
+	if (dev_is_dma_coherent(dev) ||
 	    (IS_ENABLED(CONFIG_DMA_NONCOHERENT_CACHE_SYNC) &&
              (attrs & DMA_ATTR_NON_CONSISTENT)))
 		return prot;
@@ -222,7 +205,7 @@ int dma_common_mmap(struct device *dev, struct vm_area_struct *vma,
 	if (off >= count || user_count > count - off)
 		return -ENXIO;
 
-	if (!is_dma_coherent(dev, attrs)) {
+	if (!dev_is_dma_coherent(dev)) {
 		if (!IS_ENABLED(CONFIG_ARCH_HAS_DMA_COHERENT_TO_PFN))
 			return -ENXIO;
 
@@ -240,7 +223,6 @@ int dma_common_mmap(struct device *dev, struct vm_area_struct *vma,
 	return -ENXIO;
 #endif /* CONFIG_MMU */
 }
-EXPORT_SYMBOL_GPL(dma_common_mmap);
 
 /**
  * dma_can_mmap - check if a given device supports dma_mmap_*
@@ -282,9 +264,6 @@ int dma_mmap_attrs(struct device *dev, struct vm_area_struct *vma,
 {
 	const struct dma_map_ops *ops = get_dma_ops(dev);
 
-	if (dev_is_dma_coherent_hint_cached(dev))
-		attrs |= DMA_ATTR_FORCE_COHERENT;
-
 	if (dma_is_direct(ops))
 		return dma_common_mmap(dev, vma, cpu_addr, dma_addr, size,
 				attrs);
@@ -323,11 +302,6 @@ void *dma_alloc_attrs(struct device *dev, size_t size, dma_addr_t *dma_handle,
 
 	WARN_ON_ONCE(!dev->coherent_dma_mask);
 
-	WARN_ON(!of_reserved_mem_device_is_init(dev));
-
-	if (dev_is_dma_coherent_hint_cached(dev))
-		attrs |= DMA_ATTR_FORCE_COHERENT;
-
 	if (dma_alloc_from_dev_coherent(dev, size, dma_handle, &cpu_addr))
 		return cpu_addr;
 
@@ -350,9 +324,6 @@ void dma_free_attrs(struct device *dev, size_t size, void *cpu_addr,
 		dma_addr_t dma_handle, unsigned long attrs)
 {
 	const struct dma_map_ops *ops = get_dma_ops(dev);
-
-	if (dev_is_dma_coherent_hint_cached(dev))
-		attrs |= DMA_ATTR_FORCE_COHERENT;
 
 	if (dma_release_from_dev_coherent(dev, get_order(size), cpu_addr))
 		return;

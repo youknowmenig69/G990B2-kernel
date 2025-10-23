@@ -54,10 +54,12 @@ static inline u64 fuse_dentry_time(const struct dentry *entry)
 
 static void fuse_dentry_settime(struct dentry *dentry, u64 time)
 {
-	/* fuse: delete dentry if inode got I_ATTR_FORCE_SYNC state
 	struct fuse_conn *fc = get_fuse_conn_super(dentry->d_sb);
 	bool delete = !time && fc->delete_stale;
-
+	/*
+	 * Mess with DCACHE_OP_DELETE because dput() will be faster without it.
+	 * Don't care about races, either way it's just an optimization
+	 */
 	if ((!delete && (dentry->d_flags & DCACHE_OP_DELETE)) ||
 	    (delete && !(dentry->d_flags & DCACHE_OP_DELETE))) {
 		spin_lock(&dentry->d_lock);
@@ -67,7 +69,7 @@ static void fuse_dentry_settime(struct dentry *dentry, u64 time)
 			dentry->d_flags |= DCACHE_OP_DELETE;
 		spin_unlock(&dentry->d_lock);
 	}
-	*/
+
 	__fuse_dentry_settime(dentry, time);
 }
 
@@ -291,60 +293,9 @@ static void fuse_dentry_release(struct dentry *dentry)
 }
 #endif
 
-/* @fs.sec -- 63ff82f9216c9b6d003e7d45699d54b833344719 -- */
 static int fuse_dentry_delete(const struct dentry *dentry)
 {
-	struct fuse_inode *fi;
-
-	/*
-	if (time_before64(fuse_dentry_time(dentry), get_jiffies_64()))
-		return 1;
-	*/
-
-	if (d_really_is_negative(dentry))
-		return 0;
-
-	fi = get_fuse_inode(d_inode(dentry));
-	if (test_bit(FUSE_I_ATTR_FORCE_SYNC, &fi->state))
-		return 1;
-
-	return 0;
-}
-
-/*
- * Get the canonical path. Since we must translate to a path, this must be done
- * in the context of the userspace daemon, however, the userspace daemon cannot
- * look up paths on its own. Instead, we handle the lookup as a special case
- * inside of the write request.
- */
-static void fuse_dentry_canonical_path(const struct path *path, struct path *canonical_path) {
-	struct inode *inode = d_inode(path->dentry);
-	struct fuse_conn *fc = get_fuse_conn(inode);
-	FUSE_ARGS(args);
-	char *path_name;
-	int err;
-
-	path_name = (char *)get_zeroed_page(GFP_KERNEL);
-	if (!path_name)
-		goto default_path;
-
-	args.opcode = FUSE_CANONICAL_PATH;
-	args.nodeid = get_node_id(inode);
-	args.in_numargs = 0;
-	args.out_numargs = 1;
-	args.out_args[0].size = PATH_MAX;
-	args.out_args[0].value = path_name;
-	args.canonical_path = canonical_path;
-	args.out_argvar = 1;
-
-	err = fuse_simple_request(fc, &args);
-	free_page((unsigned long)path_name);
-	if (err > 0)
-		return;
-default_path:
-	canonical_path->dentry = path->dentry;
-	canonical_path->mnt = path->mnt;
-	path_get(canonical_path);
+	return time_before64(fuse_dentry_time(dentry), get_jiffies_64());
 }
 
 const struct dentry_operations fuse_dentry_operations = {
@@ -354,7 +305,6 @@ const struct dentry_operations fuse_dentry_operations = {
 	.d_init		= fuse_dentry_init,
 	.d_release	= fuse_dentry_release,
 #endif
-	.d_canonical_path = fuse_dentry_canonical_path,
 };
 
 const struct dentry_operations fuse_root_dentry_operations = {
@@ -1048,8 +998,6 @@ static int fuse_update_get_attr(struct inode *inode, struct file *file,
 		sync = false;
 	else if (request_mask & READ_ONCE(fi->inval_mask))
 		sync = true;
-	else if (test_bit(FUSE_I_ATTR_FORCE_SYNC, &fi->state))
-		sync = true;
 	else
 		sync = time_before64(fi->i_time, get_jiffies_64());
 
@@ -1240,8 +1188,7 @@ static int fuse_permission(struct inode *inode, int mask)
 		u32 perm_mask = STATX_MODE | STATX_UID | STATX_GID;
 
 		if (perm_mask & READ_ONCE(fi->inval_mask) ||
-		    time_before64(fi->i_time, get_jiffies_64()) ||
-		    test_bit(FUSE_I_ATTR_FORCE_SYNC, &fi->state)) {
+		    time_before64(fi->i_time, get_jiffies_64())) {
 			refreshed = true;
 
 			err = fuse_perm_getattr(inode, mask);
@@ -1481,7 +1428,7 @@ void fuse_set_nowrite(struct inode *inode)
 	BUG_ON(fi->writectr < 0);
 	fi->writectr += FUSE_NOWRITE;
 	spin_unlock(&fi->lock);
-	fuse_wait_event(fi->page_waitq, fi->writectr == FUSE_NOWRITE);
+	wait_event(fi->page_waitq, fi->writectr == FUSE_NOWRITE);
 }
 
 /*

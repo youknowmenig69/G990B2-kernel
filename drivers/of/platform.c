@@ -480,7 +480,6 @@ int of_platform_populate(struct device_node *root,
 	pr_debug("%s()\n", __func__);
 	pr_debug(" starting at: %pOF\n", root);
 
-	device_links_supplier_sync_state_pause();
 	for_each_child_of_node(root, child) {
 		rc = of_platform_bus_create(child, matches, lookup, parent, true);
 		if (rc) {
@@ -488,8 +487,6 @@ int of_platform_populate(struct device_node *root,
 			break;
 		}
 	}
-	device_links_supplier_sync_state_resume();
-
 	of_node_set_flag(root, OF_POPULATED_BUS);
 
 	of_node_put(root);
@@ -511,17 +508,12 @@ static const struct of_device_id reserved_mem_matches[] = {
 	{ .compatible = "qcom,rmtfs-mem" },
 	{ .compatible = "qcom,cmd-db" },
 	{ .compatible = "ramoops" },
-#if IS_ENABLED(CONFIG_PSTORE_PMSG_SSPLOG)
-	{ .compatible = "ss_plog" },
-#endif
 	{}
 };
 
 static int __init of_platform_default_populate_init(void)
 {
 	struct device_node *node;
-
-	device_links_supplier_sync_state_pause();
 
 	if (!of_have_populated_dt())
 		return -ENODEV;
@@ -541,20 +533,11 @@ static int __init of_platform_default_populate_init(void)
 	}
 
 	/* Populate everything else. */
-	fw_devlink_pause();
 	of_platform_default_populate(NULL, NULL, NULL);
-	fw_devlink_resume();
 
 	return 0;
 }
 arch_initcall_sync(of_platform_default_populate_init);
-
-static int __init of_platform_sync_state_init(void)
-{
-	device_links_supplier_sync_state_resume();
-	return 0;
-}
-late_initcall_sync(of_platform_sync_state_init);
 #endif
 
 int of_platform_device_destroy(struct device *dev, void *data)

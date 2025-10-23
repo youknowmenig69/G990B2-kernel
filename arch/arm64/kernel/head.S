@@ -27,7 +27,6 @@
 #include <asm/pgtable-hwdef.h>
 #include <asm/pgtable.h>
 #include <asm/page.h>
-#include <asm/scs.h>
 #include <asm/smp.h>
 #include <asm/sysreg.h>
 #include <asm/thread_info.h>
@@ -80,11 +79,7 @@ _head:
 	le64sym	_kernel_size_le			// Effective size of kernel image, little-endian
 	le64sym	_kernel_flags_le		// Informative flags, little-endian
 	.quad	0				// reserved
-#ifdef CONFIG_PROCA
-	le64sym	_proca_conf_offset		// memory info for proca ta
-#else
-	.quad	0xecefecef			// Magic number for proca ta
-#endif
+	.quad	0				// reserved
 	.quad	0				// reserved
 	.ascii	ARM64_IMAGE_MAGIC		// Magic number
 #ifdef CONFIG_EFI
@@ -134,13 +129,9 @@ preserve_boot_args:
 	mov	x21, x0				// x21=FDT
 
 	adr_l	x0, boot_args			// record the contents of
-#ifndef CONFIG_RANDOMIZE_BASE
 	stp	x21, x1, [x0]			// x0 .. x3 at kernel entry
 	stp	x2, x3, [x0, #16]
-#else
-	stp	x21, xzr, [x0]			// x0 .. x3 at kernel entry
-	stp	xzr, xzr, [x0, #16]	
-#endif
+
 	dmb	sy				// needed before dc ivac with
 						// MMU off
 
@@ -439,10 +430,6 @@ __primary_switched:
 
 	stp	xzr, x30, [sp, #-16]!
 	mov	x29, sp
-
-#ifdef CONFIG_SHADOW_CALL_STACK
-	adr_l	x18, init_shadow_call_stack	// Set shadow call stack
-#endif
 
 	str_l	x21, __fdt_pointer, x5		// Save FDT pointer
 
@@ -751,10 +738,6 @@ __secondary_switched:
 	ldr	x2, [x0, #CPU_BOOT_TASK]
 	cbz	x2, __secondary_too_slow
 	msr	sp_el0, x2
-#ifdef CONFIG_SHADOW_CALL_STACK
-	ldr	x18, [x2, #TSK_TI_SCS]		// set shadow call stack
-	str	xzr, [x2, #TSK_TI_SCS]		// limit visibility of saved SCS
-#endif
 	mov	x29, #0
 	mov	x30, #0
 	b	secondary_start_kernel

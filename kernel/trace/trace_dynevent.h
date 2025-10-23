@@ -10,9 +10,6 @@
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/seq_file.h>
-#ifdef CONFIG_KPROBES_DEBUG
-#include <linux/trace_events.h>
-#endif
 
 #include "trace.h"
 
@@ -53,7 +50,6 @@ struct dyn_event_operations {
 /* Register new dyn_event type -- must be called at first */
 int dyn_event_register(struct dyn_event_operations *ops);
 
-#ifndef CONFIG_KPROBES_DEBUG
 /**
  * struct dyn_event - Dynamic event list header
  *
@@ -66,7 +62,6 @@ struct dyn_event {
 	struct list_head		list;
 	struct dyn_event_operations	*ops;
 };
-#endif
 
 extern struct list_head dyn_event_list;
 

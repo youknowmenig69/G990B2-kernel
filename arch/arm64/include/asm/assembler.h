@@ -41,7 +41,7 @@
 	.endm
 
 	/* Only on aarch64 pstate, PSR_D_BIT is different for aarch32 */
-	.macro inherit_daif, pstate:req, tmp:req
+	.macro	inherit_daif, pstate:req, tmp:req
 	and	\tmp, \pstate, #(PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT)
 	msr	daif, \tmp
 	.endm
@@ -52,16 +52,8 @@
 	.endm
 
 /*
- * Enable and disable interrupts.
+ * Save/restore interrupts.
  */
-	.macro	disable_irq
-	msr	daifset, #2
-	.endm
-
-	.macro	enable_irq
-	msr	daifclr, #2
-	.endm
-
 	.macro	save_and_disable_irq, flags
 	mrs	\flags, daif
 	msr	daifset, #2
@@ -69,18 +61,6 @@
 
 	.macro	restore_irq, flags
 	msr	daif, \flags
-	.endm
-
-/*
- * Save/disable and restore interrupts.
- */
-	.macro	save_and_disable_irqs, olddaif
-	mrs	\olddaif, daif
-	disable_irq
-	.endm
-
-	.macro	restore_irqs, olddaif
-	msr	daif, \olddaif
 	.endm
 
 	.macro	enable_dbg
@@ -471,16 +451,6 @@ USER(\label, ic	ivau, \tmp2)			// invalidate I line PoU
 	.endm
 
 /*
- * reset_amuserenr_el0 - reset AMUSERENR_EL0 if AMUv1 present
- */
-	.macro	reset_amuserenr_el0, tmpreg
-	mrs	\tmpreg, id_aa64pfr0_el1	// Check ID_AA64PFR0_EL1
-	ubfx	\tmpreg, \tmpreg, #ID_AA64PFR0_AMU_SHIFT, #4
-	cbz	\tmpreg, .Lskip_\@		// Skip if no AMU present
-	msr_s	SYS_AMUSERENR_EL0, xzr		// Disable AMU access from EL0
-.Lskip_\@:
-	.endm
-/*
  * copy_page - copy src to dest using temp registers t1-t8
  */
 	.macro copy_page dest:req src:req t1:req t2:req t3:req t4:req t5:req t6:req t7:req t8:req
@@ -799,7 +769,7 @@ USER(\label, ic	ivau, \tmp2)			// invalidate I line PoU
 alternative_cb  spectre_bhb_patch_loop_iter
 	mov	\tmp, #32		// Patched to correct the immediate
 alternative_cb_end
-.Lspectre_bhb_loop\@ :
+.Lspectre_bhb_loop\@:
 	b	. + 4
 	subs	\tmp, \tmp, #1
 	b.ne	.Lspectre_bhb_loop\@
@@ -810,8 +780,8 @@ alternative_cb_end
 	/* Save/restores x0-x3 to the stack */
 	.macro __mitigate_spectre_bhb_fw
 #ifdef CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY
-	stp	x0, x1, [sp, # -16] !
-	stp	x2, x3, [sp, # -16] !
+	stp	x0, x1, [sp, #-16]!
+	stp	x2, x3, [sp, #-16]!
 	mov	w0, #ARM_SMCCC_ARCH_WORKAROUND_3
 alternative_cb	arm64_update_smccc_conduit
 	nop					// Patched to SMC/HVC #0

@@ -9,10 +9,6 @@
 
 #include <linux/cpufreq.h>
 #include <linux/module.h>
-#ifdef CONFIG_CPU_FREQ_LIMIT
-/* cpu frequency table for limit driver */
-void cflm_set_table(int cpu, struct cpufreq_frequency_table *ftbl);
-#endif
 
 /*********************************************************************
  *                     FREQUENCY TABLE HELPERS                       *
@@ -57,9 +53,6 @@ int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy,
 
 	policy->min = policy->cpuinfo.min_freq = min_freq;
 	policy->max = policy->cpuinfo.max_freq = max_freq;
-
-	if (max_freq > cpuinfo_max_freq_cached)
-		cpuinfo_max_freq_cached = max_freq;
 
 	if (policy->min == ~0)
 		return -EINVAL;
@@ -362,10 +355,6 @@ int cpufreq_table_validate_and_sort(struct cpufreq_policy *policy)
 	ret = cpufreq_frequency_table_cpuinfo(policy, policy->freq_table);
 	if (ret)
 		return ret;
-
-#ifdef CONFIG_CPU_FREQ_LIMIT
-	cflm_set_table(policy->cpu, policy->freq_table);
-#endif
 
 	return set_freq_table_sorted(policy);
 }
